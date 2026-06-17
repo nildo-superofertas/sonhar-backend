@@ -11,7 +11,10 @@ CORS(app)
 # ============================================================
 # CONFIGURAÇÕES
 # ============================================================
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///sonhar.db')
+db_url = os.environ.get('DATABASE_URL', 'sqlite:///sonhar.db')
+if db_url.startswith('postgres://'):
+    db_url = db_url.replace('postgres://', 'postgresql://', 1)
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'sonhar_digital_2025')
 
