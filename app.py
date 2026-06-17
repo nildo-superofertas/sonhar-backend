@@ -11,11 +11,12 @@ CORS(app)
 # ============================================================
 # CONFIGURAÇÕES
 # ============================================================
-# Corrigir URL do PostgreSQL (Railway às vezes usa postgres:// ao invés de postgresql://)
-db_url = os.environ.get('DATABASE_URL', 'sqlite:///sonhar.db')
+db_url = os.environ.get('DATABASE_URL', 'postgresql+pg8000://postgres:yqqVKbvMhpcjLCEqDVnxBLkHVFkGvuiA@thomas.proxy.rlwy.net:24843/railway')
 if db_url.startswith('postgres://'):
-    db_url = db_url.replace('postgres://', 'postgresql://', 1)
-print(f'>>> DATABASE_URL em uso: {db_url[:50]}')
+    db_url = db_url.replace('postgres://', 'postgresql+pg8000://', 1)
+elif db_url.startswith('postgresql://') and 'pg8000' not in db_url:
+    db_url = db_url.replace('postgresql://', 'postgresql+pg8000://', 1)
+print(f'>>> BANCO EM USO: {db_url[:60]}')
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'sonhar_digital_2025')
