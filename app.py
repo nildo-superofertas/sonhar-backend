@@ -12,9 +12,11 @@ CORS(app)
 # CONFIGURAÇÕES
 # ============================================================
 db_url = os.environ.get('DATABASE_URL', 'sqlite:///sonhar.db')
-db_url = os.environ.get('DATABASE_URL', 'postgresql://postgres:yqqVKbvMhpcjLCEqDVnxBLkHVFkGvuiA@thomas.proxy.rlwy.net:24843/railway')
+db_url = os.environ.get('DATABASE_URL', 'postgresql+pg8000://postgres:yqqVKbvMhpcjLCEqDVnxBLkHVFkGvuiA@thomas.proxy.rlwy.net:24843/railway')
 if db_url.startswith('postgres://'):
-    db_url = db_url.replace('postgres://', 'postgresql://', 1)
+    db_url = db_url.replace('postgres://', 'postgresql+pg8000://', 1)
+elif db_url.startswith('postgresql://'):
+    db_url = db_url.replace('postgresql://', 'postgresql+pg8000://', 1)
 print(f'>>> BANCO EM USO: {db_url[:60]}')
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 
