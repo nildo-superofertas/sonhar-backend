@@ -11,14 +11,14 @@ CORS(app)
 # ============================================================
 # CONFIGURAÇÕES
 # ============================================================
+# Corrigir URL do PostgreSQL (Railway às vezes usa postgres:// ao invés de postgresql://)
 db_url = os.environ.get('DATABASE_URL', 'sqlite:///sonhar.db')
-db_url = os.environ.get('DATABASE_URL', 'postgresql+pg8000://postgres:yqqVKbvMhpcjLCEqDVnxBLkHVFkGvuiA@thomas.proxy.rlwy.net:24843/railway')
 if db_url.startswith('postgres://'):
-    db_url = db_url.replace('postgres://', 'postgresql+pg8000://', 1)
-elif db_url.startswith('postgresql://'):
-    db_url = db_url.replace('postgresql://', 'postgresql+pg8000://', 1)
-print(f'>>> BANCO EM USO: {db_url[:60]}')
+    db_url = db_url.replace('postgres://', 'postgresql://', 1)
+print(f'>>> DATABASE_URL em uso: {db_url[:50]}')
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'sonhar_digital_2025')
 
 POSTBACK_KEY = os.environ.get('POSTBACK_KEY', 'aeb82267e3b25c1d2debe5b4eaf64337')
 
@@ -138,32 +138,66 @@ class AtividadeDia(db.Model):
 # ============================================================
 # ROTAS — POSTBACK SONHAR DIGITAL
 # ============================================================
-@app.route('/postback/sonhar', methods=['POST'])
+@app.route('/postback/sonhar', methods=['POST', 'GET'])
 def postback_sonhar():
     """Recebe pedidos automáticos da Sonhar Digital via PostBack"""
-    # Validar chave
-    chave = request.headers.get('X-Postback-Key') or request.args.get('key') or ''
-    if chave != POSTBACK_KEY:
-        return jsonify({'erro': 'Chave inválida'}), 401
+    import json
 
-    data = request.get_json(silent=True) or request.form.to_dict()
+    # Coletar dados de TODAS as formas possíveis (JSON, form, querystring)
+    data_json = request.get_json(silent=True) or {}
+    data_form = request.form.to_dict()
+    data_args = request.args.to_dict()
+    data = {**data_args, **data_form, **data_json}  # JSON tem prioridade
+
+    # Procurar a chave em QUALQUER lugar possível
+    chave = (
+        request.headers.get('X-Postback-Key') or
+        request.headers.get('Chave-Unica') or
+        request.headers.get('Authorization', '').replace('Bearer ', '') or
+        data.get('chave') or data.get('chave_unica') or data.get('key') or
+        data.get('token') or data.get('secret') or data.get('webhook_secret') or
+        data.get('chave_secreta') or ''
+    )
+
+    if chave != POSTBACK_KEY:
+        # Log para debug — mostra o payload recebido mesmo com chave errada
+        print(f'>>> POSTBACK chave inválida recebida: "{chave}"')
+        print(f'>>> Payload recebido: {json.dumps(data, ensure_ascii=False)}')
+        return jsonify({'erro': 'Chave inválida', 'debug_payload_recebido': data}), 401
+
     if not data:
         return jsonify({'erro': 'Payload vazio'}), 400
 
-    import json
+    print(f'>>> POSTBACK recebido com sucesso: {json.dumps(data, ensure_ascii=False)}')
 
-    # Mapear campos da Sonhar Digital → nosso modelo
-    pedido_id_ext = str(data.get('id') or data.get('order_id') or data.get('pedido_id') or '')
-    status_raw    = str(data.get('status') or data.get('situacao') or 'pendente').lower()
+    # Mapear campos da Sonhar Digital / Hotmart-like → nosso modelo
+    pedido_id_ext = str(
+        data.get('id') or data.get('order_id') or data.get('pedido_id') or
+        data.get('transacao') or data.get('codigo_transacao') or data.get('sale_id') or ''
+    )
+    status_raw = str(
+        data.get('status') or data.get('situacao') or data.get('evento') or
+        data.get('event') or 'pendente'
+    ).lower().strip()
 
-    # Normalizar status
+    # Normalizar status — incluindo os status específicos vistos na tela da Sonhar Pay
     status_map = {
-        'aprovado': 'aprovado', 'approved': 'aprovado', 'pago': 'aprovado',
-        'cancelado': 'cancelado', 'cancelled': 'cancelado', 'canceled': 'cancelado',
+        'aguardando pagamento': 'pendente', 'em análise': 'pendente', 'em analise': 'pendente',
+        'pré-autorizada': 'pendente', 'pre-autorizada': 'pendente',
+        'paga': 'aprovado', 'aprovado': 'aprovado', 'approved': 'aprovado', 'pago': 'aprovado',
+        'concluída': 'aprovado', 'concluida': 'aprovado', 'completed': 'aprovado',
+        'cancelada': 'cancelado', 'cancelado': 'cancelado', 'cancelled': 'cancelado', 'canceled': 'cancelado',
+        'devolvida': 'devolvido', 'devolvido': 'devolvido', 'returned': 'devolvido',
+        'chargeback': 'cancelado', 'bloqueada': 'cancelado',
         'pendente': 'pendente', 'pending': 'pendente', 'aguardando': 'pendente',
+        'pad - aguardando aprovação': 'pendente', 'pad - envio aprovado': 'enviado',
+        'pad - envio rejeitado': 'cancelado', 'pad - venda frustrada': 'cancelado',
+        'pad - produto entregue': 'entregue', 'pad - produto enviado': 'enviado',
+        'pad - venda pad recuperada': 'aprovado',
+        'objeto saiu para entrega ao destinatário': 'enviado',
+        'objeto entregue ao destinatário': 'entregue',
         'enviado': 'enviado', 'shipped': 'enviado',
         'entregue': 'entregue', 'delivered': 'entregue',
-        'devolvido': 'devolvido', 'returned': 'devolvido',
     }
     status = status_map.get(status_raw, 'pendente')
 
@@ -366,20 +400,19 @@ def serve_static(path):
 # ============================================================
 # INICIALIZAÇÃO
 # ============================================================
-# Criar tabelas e usuário padrão — roda sempre, inclusive com Gunicorn
-with app.app_context():
-    db.create_all()
-    if not Usuario.query.filter_by(cpf='000.000.000-00').first():
-        gestor = Usuario(
-            nome='Gestor Master',
-            cpf='000.000.000-00',
-            senha_hash=hashlib.sha256('admin123'.encode()).hexdigest(),
-            perfil='gestor'
-        )
-        db.session.add(gestor)
-        db.session.commit()
-        print('✅ Gestor padrão criado: CPF 000.000.000-00 / senha admin123')
-
 if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+        # Criar gestor padrão se não existir
+        if not Usuario.query.filter_by(cpf='000.000.000-00').first():
+            gestor = Usuario(
+                nome='Gestor Master',
+                cpf='000.000.000-00',
+                senha_hash=hashlib.sha256('admin123'.encode()).hexdigest(),
+                perfil='gestor'
+            )
+            db.session.add(gestor)
+            db.session.commit()
+            print('✅ Gestor padrão criado: CPF 000.000.000-00 / senha admin123')
     print('🚀 Backend Sonhar Digital rodando em http://localhost:5000')
     app.run(debug=True, host='0.0.0.0', port=5000)
