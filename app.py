@@ -366,19 +366,20 @@ def serve_static(path):
 # ============================================================
 # INICIALIZAÇÃO
 # ============================================================
+# Criar tabelas e usuário padrão — roda sempre, inclusive com Gunicorn
+with app.app_context():
+    db.create_all()
+    if not Usuario.query.filter_by(cpf='000.000.000-00').first():
+        gestor = Usuario(
+            nome='Gestor Master',
+            cpf='000.000.000-00',
+            senha_hash=hashlib.sha256('admin123'.encode()).hexdigest(),
+            perfil='gestor'
+        )
+        db.session.add(gestor)
+        db.session.commit()
+        print('✅ Gestor padrão criado: CPF 000.000.000-00 / senha admin123')
+
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        # Criar gestor padrão se não existir
-        if not Usuario.query.filter_by(cpf='000.000.000-00').first():
-            gestor = Usuario(
-                nome='Gestor Master',
-                cpf='000.000.000-00',
-                senha_hash=hashlib.sha256('admin123'.encode()).hexdigest(),
-                perfil='gestor'
-            )
-            db.session.add(gestor)
-            db.session.commit()
-            print('✅ Gestor padrão criado: CPF 000.000.000-00 / senha admin123')
     print('🚀 Backend Sonhar Digital rodando em http://localhost:5000')
     app.run(debug=True, host='0.0.0.0', port=5000)
